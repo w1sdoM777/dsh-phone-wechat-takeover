@@ -279,6 +279,9 @@ def cmd_inbox(args):
                             "last_inbox": time.strftime("%Y-%m-%d %H:%M:%S")})
         out = {"ok": True, "new_tasks": new_tasks, "context": context,
                "state_inited": state.get("inited")}
+        if not new_tasks:
+            out["note"] = ("没有新的文字消息。若对方发的是图片/语音/文件，inbox 取不到正文；"
+                           "请开聊天页截图，必要时裁剪图片气泡后用视觉识别。")
         print(json.dumps(out, ensure_ascii=False, indent=1))
         return 0
     except Exception as e:

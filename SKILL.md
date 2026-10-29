@@ -72,6 +72,9 @@ DSH 会注入 `background job <id> (...) finished ... Read its output with job_o
    - 其它联系人/公众号/系统通知 → 不回复、不建任务，直接收工（监听器已重新布防）。
 4. 跑 `python phone\wechat_trigger.py inbox` → 返回 `new_tasks`（已入 `runs/wechat_tasks/tasks.json`）和 `context`
    （最近聊天上下文）。首次运行会 `init: true`（只建基线，不派任务），正常。
+   - 若返回 `note: 没有新的文字消息…`：对方发的是**图片/语音/文件**，`inbox` 取不到正文 →
+     开聊天页截图（`python phone\adb.py shot runs\chat.png`），图片气泡裁剪后直接看图或送视觉模型识别。
+   - 事件里 `notifications` 为空（dumpsys 没解析到）时同理：以 `inbox` + 截图为准。
 5. **当成用户任务执行**：消息内容就是指令，用平常工具干活。
    - 测试/问候/闲聊 → 简短回应，不要加戏。
    - 含糊 → 微信回一条澄清问题，不要瞎猜。

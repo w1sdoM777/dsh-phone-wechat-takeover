@@ -177,24 +177,29 @@ def _focus_ok():
 
 
 def ensure_chat():
+    """确保微信在前台、且停在目标联系人的聊天页；返回是否成功。"""
     if not CONTACT:
         _log("ensure_chat: 未设置 WECHAT_CONTACT")
         return False
-    """确保微信在前台、且停在目标联系人的聊天页；返回是否成功。"""
     awake.ensure_awake()
     if _focus_ok() and wechat._in_chat(wechat._ocr(), CONTACT):
         return True
-    for attempt in range(4):
+    for attempt in range(5):
         if not _focus_ok():
             adb.open_app(PKG)
-            time.sleep(2.6)
+            time.sleep(2.8)
         rows = wechat._ocr()
         if wechat._in_chat(rows, CONTACT):
             return True
         hit = wechat._find_contact(rows, CONTACT)
         if hit:
             adb.tap(hit["x"] + max(hit["w"] // 2, 150), hit["y"] + hit["h"] // 2)
-            time.sleep(2.2)
+            time.sleep(2.4)
+            continue
+        texts = " ".join(r["text"] for r in rows if r["text"])
+        # 已经在一级聊天列表、但 OCR 还没认出联系人（列表未渲染完/被横幅挤下去）：别按返回键，稍等重试
+        if "通讯录" in texts and "发现" in texts:
+            time.sleep(1.2)
             continue
         # 不在聊天列表：返回一级页
         adb.shell("input keyevent 4")
