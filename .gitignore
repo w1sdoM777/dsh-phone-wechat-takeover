@@ -1,0 +1,16 @@
+# 运行产物（事件、截图、任务队列、状态）——不要提交
+runs/
+__pycache__/
+*.pyc
+*.pyo
+
+# 本地工具与二进制
+phone/ADBKeyboard.apk
+tools/platform-tools/
+tools/platform-tools.zip
+tools/scrcpy/
+
+# 编辑器
+.vscode/
+.idea/
+.DS_Store
