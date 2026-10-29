@@ -80,6 +80,16 @@ workspace = <本仓库绝对路径>（如果当前目录不是这个，先 cd �
 agent 会 `job_kill` 监听任务；Python 与 `adb logcat` 子进程随之退出，后台回到 0 消耗。
 之后手机微信消息仍会正常收到，只是不再自动唤醒 agent。
 
+**跨会话撤防**（监听器是另一个会话布防的、本会话找不到它的 job id 时）：
+
+```powershell
+python phone\wechat_trigger.py disarm
+```
+
+它会杀掉所有 `wechat_trigger.py listen` 进程和对应的 `adb logcat`，并返回剩余监听器数量（应为 0）。
+注意：被杀会话的 DSH 后台任务会结算，**那个会话可能被唤醒并尝试重新布防**；撤防后请把那个会话关掉，
+或在那边也说一句「撤防」。
+
 > scrcpy 投屏窗口与本触发器无关，关掉不影响事件监听（熄屏照样能收到通知事件）。
 
 ---

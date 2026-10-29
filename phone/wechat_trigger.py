@@ -329,6 +329,43 @@ def cmd_finish(args):
     return 0 if res.get("ok") else 1
 
 
+def cmd_disarm(args):
+    """从任意会话撤防：杀掉所有 wechat_trigger.py listen 进程及其 adb logcat 子进程。
+
+    注意：被杀会话的 DSH 后台任务会结算并可能唤醒那边的 agent（按 skill 它会想重布防）。
+    撤防后如需彻底停用，建议关掉那个会话，或在那个会话里也说一句「撤防」。
+    """
+    ps = (
+        "Get-CimInstance Win32_Process | Where-Object { "
+        "($_.Name -eq 'python.exe' -and $_.CommandLine -like '*wechat_trigger.py listen*') -or "
+        "($_.Name -eq 'adb.exe' -and $_.CommandLine -like '*logcat*events*') "
+        "} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }"
+    )
+    killed = []
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                             capture_output=True, text=True, timeout=90)
+        killed = [line.strip() for line in out.stdout.splitlines() if line.strip().isdigit()]
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": repr(e)}, ensure_ascii=False))
+        return 1
+    time.sleep(1.5)
+    left = "?"
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and "
+             "$_.CommandLine -like '*wechat_trigger.py listen*' } | Measure-Object | "
+             "Select-Object -ExpandProperty Count"],
+            capture_output=True, text=True, timeout=90)
+        left = out.stdout.strip()
+    except Exception:
+        pass
+    print(json.dumps({"ok": left == "0", "killed_pids": killed, "remaining_listeners": left},
+                     ensure_ascii=False, indent=1))
+    return 0 if left == "0" else 1
+
+
 def cmd_test_notif(args):
     stamp = time.strftime("%H:%M:%S")
     try:
@@ -356,6 +393,8 @@ def main(argv):
 
     sub.add_parser("status", help="查看触发器状态")
 
+    sub.add_parser("disarm", help="撤防：杀掉所有 wechat_trigger.py listen 监听进程（可从任意会话执行）")
+
     p = sub.add_parser("reply", help="微信回结果")
     p.add_argument("--text", nargs="+", default=[])
 
@@ -370,6 +409,7 @@ def main(argv):
         "listen": cmd_listen,
         "inbox": cmd_inbox,
         "status": cmd_status,
+        "disarm": cmd_disarm,
         "reply": cmd_reply,
         "finish": cmd_finish,
         "test-notif": cmd_test_notif,
