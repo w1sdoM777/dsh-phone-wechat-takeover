@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import re
 import subprocess
@@ -41,6 +42,7 @@ EV_LOG = EV_DIR / "listen.log"
 EV_JSONL = EV_DIR / "events.jsonl"
 STATE = ROOT / "runs" / "_wechat" / "trigger_state.json"
 DISARM_FLAG = ROOT / "runs" / "_wechat" / "DISARMED"
+OWNER_FILE = ROOT / "runs" / "_wechat" / "owner.json"
 WECHAT_PKG = "com.tencent.mm"
 SHELL_PKG = "com.android.shell"
 
@@ -133,23 +135,110 @@ def _ps_listener_pids():
         return []
 
 
+# ---------------------------------------------------------------- 全局唯一 owner
+# 规则：同一时刻只有一个会话「拥有」监听器。
+# - 用户在会话里说「布防」→ listen --claim：接管所有权，停掉其它会话的监听器；
+# - 被唤醒后的自动重布防 → listen（不带 --claim）：若 owner 是别的会话，只进入待命（不监听、不耗 token）。
+
+def _my_session():
+    return (os.environ.get("DSH_SESSION_ID") or "").strip() or "unknown"
+
+
+def _load_owner():
+    try:
+        data = json.loads(OWNER_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def _save_owner(session):
+    try:
+        OWNER_FILE.parent.mkdir(parents=True, exist_ok=True)
+        OWNER_FILE.write_text(json.dumps(
+            {"session": session, "pid": os.getpid(), "at": time.strftime("%Y-%m-%d %H:%M:%S")},
+            ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        _log("owner 写入失败: " + repr(e))
+
+
+def _kill_listeners(except_pids=()):
+    """停掉其它监听器进程，并清掉残留的 adb logcat 子进程（调用方随后会起自己的）。"""
+    mine = {os.getpid(), os.getppid()}
+    mine.update(int(p) for p in except_pids if p)
+    killed = []
+    for pid in _ps_listener_pids():
+        try:
+            ipid = int(pid)
+        except ValueError:
+            continue
+        if ipid in mine:
+            continue
+        try:
+            subprocess.run(["powershell", "-NoProfile", "-Command",
+                            f"Stop-Process -Id {ipid} -Force -ErrorAction SilentlyContinue"],
+                           capture_output=True, timeout=60)
+            killed.append(ipid)
+        except Exception:
+            pass
+    # 残留的 logcat 事件流（被杀监听器的孤儿进程）
+    ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'adb.exe' -and "
+          "$_.CommandLine -like '*logcat*events*' } | ForEach-Object { "
+          "Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; $_.ProcessId }")
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                             capture_output=True, text=True, timeout=90)
+        killed += [int(line.strip()) for line in out.stdout.splitlines() if line.strip().isdigit()]
+    except Exception:
+        pass
+    return killed
+
+
+def _park(reason, session, args):
+    """待命：不监听、不产生事件、也不结束（避免反复唤醒 agent 重新布防）。
+
+    条件解除（撤防标记消失 且 owner 变成自己/无 owner）后返回 True 继续监听；
+    达到 --max-hours 上限则返回 False。
+    """
+    _log("listen: " + reason + "，进入待命，不监听")
+    print(json.dumps({"event": "listener-parked", "reason": reason, "session": session,
+                      "hint": "待命中：不监听、不耗 token；条件解除后会自动开始监听"},
+                     ensure_ascii=False), flush=True)
+    waited = 0.0
+    while True:
+        if not DISARM_FLAG.exists():
+            owner = _load_owner()
+            owner_session = (owner or {}).get("session") or ""
+            if not owner_session or owner_session == session:
+                _log("listen: 待命条件解除，开始监听")
+                return True
+        time.sleep(3)
+        waited += 3
+        if args.max_hours and waited > args.max_hours * 3600:
+            print(json.dumps({"event": "listener-timeout", "state": "parked"}, ensure_ascii=False))
+            return False
+
+
 def cmd_listen(args):
     pkgs = {WECHAT_PKG} | ({SHELL_PKG} if args.include_shell else set())
-    # 全局撤防标记：存在时进入「待命」——不监听、不产生事件、也不结束（避免反复唤醒 agent 重布防）
-    if DISARM_FLAG.exists():
-        _log("listen: 全局撤防中（DISARMED 标记存在），进入待命，不监听")
-        print(json.dumps({"event": "listener-disarmed",
-                          "hint": "全局撤防：运行 python phone\\wechat_trigger.py arm 后，本待命进程会自动开始监听"},
-                         ensure_ascii=False))
-        waited = 0.0
-        while DISARM_FLAG.exists():
-            time.sleep(3)
-            waited += 3
-            if args.max_hours and waited > args.max_hours * 3600:
-                print(json.dumps({"event": "listener-timeout", "state": "disarmed"},
-                                 ensure_ascii=False))
+    session = _my_session()
+    while True:
+        if DISARM_FLAG.exists():
+            if not _park("全局撤防中（DISARMED 标记存在）", session, args):
                 return 0
-        _log("listen: DISARMED 标记已移除，开始监听")
+        owner = _load_owner()
+        owner_session = (owner or {}).get("session") or ""
+        if not owner_session or owner_session == session:
+            break
+        if args.claim:
+            # 用户要求布防：先登记所有权（让旧会话的重布防进入待命），再停掉旧监听器
+            _save_owner(session)
+            killed = _kill_listeners(except_pids=(os.getpid(), os.getppid()))
+            _log(f"listen: claim 接管，停掉旧监听器 {killed}（原 owner={owner_session}）")
+            break
+        if not _park(f"监听已由其他会话持有（owner={owner_session}）", session, args):
+            return 0
+    _save_owner(session)
     serial = _real_adb_serial()
     if not serial:
         print(json.dumps({"event": "listener-error", "error": "no-android-device",
@@ -326,6 +415,7 @@ def cmd_status(args):
     out = {
         "adb": _real_adb_serial(),
         "disarmed": DISARM_FLAG.exists(),
+        "owner": _load_owner(),
         "listeners": _ps_listener_pids(),
         "state": str(STATE),
         "state_exists": STATE.exists(),
@@ -425,6 +515,8 @@ def main(argv):
     p.add_argument("--include-shell", action="store_true", help="把 com.android.shell 通知也算事件（自测用）")
     p.add_argument("--burst", type=float, default=2.0, help="事件突发聚合窗口秒数（默认 2）")
     p.add_argument("--max-hours", type=float, default=0, help="最长运行小时数；0=不限（到点退出以唤醒 agent 重新布防）")
+    p.add_argument("--claim", action="store_true",
+                   help="接管所有权：停掉其他会话的监听器（用户口头要求布防时用；唤醒后的自动重布防不要加）")
 
     p = sub.add_parser("inbox", help="读聊天页新增消息并建任务")
     p.add_argument("--limit", type=int, default=10)

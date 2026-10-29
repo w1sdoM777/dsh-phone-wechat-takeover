@@ -19,7 +19,8 @@
 布防微信接管（按 wechat-takeover skill）
 ```
 
-agent 会自己读 skill 并完成：自检 → 确认微信在后台 → 用后台任务启动监听器 → `job_list` 确认 running。
+agent 会自己读 skill 并完成：自检 → 确认微信在后台 → 用后台任务启动监听器（带 `--claim`）→ `job_list` 确认 running。
+带 `--claim` 意味着**接管所有权**：之前哪个会话布防过，都会被自动撤销。
 
 ### 如果 agent 没自动接住，把这段发给它
 
@@ -30,7 +31,7 @@ workspace = <本仓库绝对路径>（如果当前目录不是这个，先 cd �
 1) python phone\wechat_trigger.py status 自检（adb 在线）
 2) 看微信是否在前台，是的话 adb shell input keyevent 3 切后台
 3) 用 pwsh 工具、run_in_background=true 启动：
-   cd <本仓库绝对路径>; $env:PYTHONIOENCODING="utf-8"; python phone\wechat_trigger.py listen --max-hours 0
+   cd <本仓库绝对路径>; $env:PYTHONIOENCODING="utf-8"; python phone\wechat_trigger.py listen --max-hours 0 --claim
 4) job_list 确认 running，告诉我 job id 和「已布防」
 ```
 
@@ -55,18 +56,21 @@ workspace = <本仓库绝对路径>（如果当前目录不是这个，先 cd �
 
 ## 3. 迁移到新会话（换会话 / DSH 重启后）
 
-后台任务不能跨会话继承，**必须在新会话重新布防**。推荐顺序：
+**直接在新会话说「布防」即可，不用先撤防旧的**：
 
-1. **先在旧会话撤防**：说「撤防微信监听」，agent 会 `job_kill` 掉监听器。
-   （不撤的话，新旧两个监听器会同时跑，同一条消息触发两次、双份 token。）
-2. **打开新会话**（同一工作区），把上面「给 agent 的一句话」发过去。
-3. **验证**：让目标联系人发一条测试微信，应在十几秒内被处理并收到微信回复。
+1. 打开新会话（同一工作区，选**完全权限**），说「布防微信接管」。
+2. agent 用 `listen --max-hours 0 --claim` 启动监听器：`--claim` 会**接管所有权**，
+   自动停掉旧会话的监听器 → **老对话的布防自动撤销**。
+3. 旧会话即使被唤醒后尝试重布防（它按 skill 会自动重布防），用的是不带 `--claim` 的 `listen`，
+   检测到 owner 是新会话 → 只进入「待命」（不监听、不耗 token、不会抢回来），不会出现双监听。
+4. 验证：让目标联系人发一条测试微信，应在十几秒内被处理并收到微信回复。
 
 注意事项：
 
 - 新会话要选**完全权限**（否则后台任务/命令会被权限拦住）。
 - 新会话的 workspace 必须是本仓库目录；不是的话让 agent 先 `cd`。
-- **任何时候只保留一个监听器**（一个 DSH 会话里的一个后台任务）。
+- 想切回旧会话：在那边说一句「布防」再接管一次即可。
+- `status` 里的 `owner` 能看出当前由谁持有；`listen` 输出 `listener-parked` 属正常（被别的会话持有）。
 - 新会话上下文小，**每次唤醒更便宜**——这也是换会话的一个实际好处。
 
 ---

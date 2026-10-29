@@ -51,21 +51,24 @@ cd <REPO>; python phone\wechat_trigger.py status
    工具 `pwsh`，`run_in_background: true`，命令：
 
    ```powershell
-   cd <REPO>; $env:PYTHONIOENCODING="utf-8"; python phone\wechat_trigger.py listen --max-hours 0
+   cd <REPO>; $env:PYTHONIOENCODING="utf-8"; python phone\wechat_trigger.py listen --max-hours 0 --claim
    ```
 
+   - `--claim` = **接管所有权**（用户口头说「布防」时才加）：自动停掉其它会话的监听器，
+     实现「新会话布防 → 老对话的布防自动撤销」。
    - `--max-hours 0` = 不限时长（推荐）；`--max-hours 12` 可做每日心跳自愈。
    - **不要**加 `--include-shell`（那是自测用，会把系统通知也当事件）。
    - 起完用 `job_list` 确认状态 running，记住 job id。
 
-4. 告诉用户：已布防；DSH 关掉/换会话后需要重新布防。
+4. 告诉用户：已布防（已接管）；之前布防过的老会话会被自动撤销。
 
 ## 二、被唤醒后要做什么（顺序很重要）
 
 DSH 会注入 `background job <id> (...) finished ... Read its output with job_output`。
 **每一步都别漏，尤其是第 1 步和第 7 步。**
 
-1. **先重新布防**（在开始处理之前把新监听器起起来，避免处理期间漏消息）——重复上面第 3 步。
+1. **先重新布防**（在开始处理之前把新监听器起起来，避免处理期间漏消息）——重复上面第 3 步，
+   **但不要加 `--claim`**：自动重布防只续自己的所有权；若 owner 是别的会话就只进入待命，不会抢回来。
 2. `job_output(job_id)` 读事件 JSON；拿不到就读 `runs\wechat_events\` 下最新的 `evt-*.json`。
 3. 判定是不是真任务：
    - `pkgs` 只有 `com.tencent.mm`；`notifications[0].title` 应含 `WECHAT_CONTACT`（表情可能显示成 `[表情]`）。
@@ -123,25 +126,25 @@ python phone\wechat_trigger.py test-notif      # 系统测试通知（配合 lis
 - 全链路：消息 18:28:23 → 监听器 18:28:30 落盘退出 → agent 立即被唤醒 → 18:28:56 微信收到结果（≈33 秒）。
 - 旧的 60 秒轮询 watcher + 每 30 分钟定时任务方案已废弃：**不要恢复定时扫描**。
 
-## 六、换新会话 / DSH 重启后
+## 六、换新会话 / DSH 重启后（全局唯一 owner）
 
-后台任务不能跨会话继承，**新会话必须重新布防**。推荐顺序：
+规则：同一时刻只有一个会话拥有监听器（记录在 `runs/_wechat/owner.json`）。
 
-1. 旧会话先撤防（说「撤防」→ `job_kill` 监听任务），避免两个监听器同时跑导致重复触发。
-2. 新会话说一句「布防微信接管」，或把下面这段直接发过去：
+- **新会话说「布防」= 接管**：用 `listen --claim`，自动停掉旧会话的监听器 → **老对话的布防自动撤销**，
+  不用先手动撤防。
+- **旧会话被唤醒后会尝试重布防**（skill 流程），但它用的是**不带 `--claim`** 的命令 → 检测到 owner 是
+  新会话，只进入「待命」（不监听、不耗 token、不会抢回来），不会造成双监听。
+- 想切回旧会话：直接在旧会话说「布防」（同样 `--claim`），再接管一次即可。
+- 新会话要开**完全权限**；`listen` 立即输出 `listener-parked` 就说明已被别的会话持有（正常，无需处理）。
 
-   ```text
-   按 wechat-takeover skill 布防微信接管。
-   workspace = <仓库绝对路径>（不是的话先 cd）
-   步骤：1) python phone\wechat_trigger.py status 自检
-        2) 微信在前台就先按 Home 切后台
-        3) pwsh 后台任务启动：python phone\wechat_trigger.py listen --max-hours 0
-        4) job_list 确认 running 后告诉我 job id 和「已布防」
-   ```
-
-3. 验证：目标联系人发一条测试微信 → 应在十几秒内收到微信回复。
-
-注意：新会话要开**完全权限**；任何时候只保留**一个**监听器；新会话上下文小，单次唤醒更便宜。
+```text
+按 wechat-takeover skill 布防微信接管。
+workspace = <仓库绝对路径>（不是的话先 cd）
+步骤：1) python phone\wechat_trigger.py status 自检
+      2) 微信在前台就先按 Home 切后台
+      3) pwsh 后台任务启动：python phone\wechat_trigger.py listen --max-hours 0 --claim
+      4) job_list 确认 running 后告诉我 job id 和「已布防（已接管）」
+```
 
 ## 七、相关文档
 

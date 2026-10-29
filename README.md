@@ -114,14 +114,18 @@ runs/wechat_tasks/tasks.json    任务队列
 2. 对 agent 说「布防」，它应当用 **`pwsh` 工具 + `run_in_background: true`** 启动：
 
    ```powershell
-   cd <repo>; $env:PYTHONIOENCODING="utf-8"; python phone\wechat_trigger.py listen --max-hours 0
+   cd <repo>; $env:PYTHONIOENCODING="utf-8"; python phone\wechat_trigger.py listen --max-hours 0 --claim
    ```
+
+   - **`--claim` = 接管所有权**（用户说「布防」时才加）：自动停掉其它会话的监听器，
+     所以「新会话布防」= 老对话的布防自动撤销；旧会话被唤醒后的自动重布防不带 `--claim`，
+     只会「待命」（不监听、不耗 token），不会抢回来。
 
 3. 监听器退出时，DSH 注入 `background job ... finished`，**空闲 agent 会被 follow-up 轮次唤醒**。
 4. 醒来的 agent 按 SKILL.md 的固定流程走：**先重新布防 → 读事件 → 读新增消息 → 执行 → 微信回结果**。
 5. DSH 重启 / 切会话后后台任务会消失，重新说一声「布防」即可。
-6. **换会话 / DSH 重启后的完整步骤**（先撤防旧的、再在新会话布防；任何时候只保留一个监听器）
-   见 [docs/USAGE.md 第 3 节](docs/USAGE.md)。
+6. **换会话 / DSH 重启后**：新会话直接说「布防」即可——`--claim` 会自动接管、旧会话的布防自动撤销，
+   不需要先手动撤防。详见 [docs/USAGE.md 第 3 节](docs/USAGE.md)。
 
 ## 实测记录（2026-10-29）
 
