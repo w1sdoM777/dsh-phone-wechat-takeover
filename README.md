@@ -91,7 +91,8 @@ python phone\wechat_trigger.py listen --max-hours 0
 | `python phone\wechat_trigger.py listen` | 常驻事件监听；命中微信通知即落盘退出（给 DSH 后台任务用） |
 | `python phone\wechat_trigger.py inbox` | 读聊天页新增消息、模糊去重、写入任务队列 |
 | `python phone\wechat_trigger.py status` | 触发器状态 / 事件数 / 任务数 |
-| `python phone\wechat_trigger.py disarm` | 撤防：杀掉所有监听进程（可从任意会话执行） |
+| `python phone\wechat_trigger.py disarm` | 全局撤防：写 DISARMED 标记 + 杀掉所有监听进程（任意会话可执行） |
+| `python phone\wechat_trigger.py arm` | 解除全局撤防（待命中的监听器会自动开始监听） |
 | `python phone\wechat_trigger.py reply --text "…"` | 微信回一条 |
 | `python phone\wechat_trigger.py finish --id N --result "…"` | 标记任务完成并微信回结果 |
 | `python phone\wechat_trigger.py test-notif` | 发系统测试通知（配合 `listen --include-shell` 自测事件链路） |

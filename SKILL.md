@@ -94,9 +94,12 @@ python phone\wechat_trigger.py reply --text "…"
 python phone\wechat_trigger.py test-notif      # 系统测试通知（配合 listen --include-shell 自测）
 ```
 
-- **撤防（本会话）**：`job_list` 找到 listener 的 job id → `job_kill`。
-- **撤防（跨会话 / 找不到 job）**：`python phone\wechat_trigger.py disarm`（杀掉所有监听进程并返回剩余数量）。
-  被杀的 DSH 后台任务会结算，**那个会话可能被唤醒并想重新布防**；撤防后关掉那个会话，或在那边也执行撤防。
+- **撤防（全局，推荐）**：`python phone\wechat_trigger.py disarm`
+  - 写标记 `runs/_wechat/DISARMED` + 杀掉所有监听进程；
+  - 之后任何会话再布防都只会「待命」：不监听、不耗 token、不会反复唤醒 agent；
+  - `status` 里 `disarmed: true`。
+- **重新启用**：`python phone\wechat_trigger.py arm`（删标记；待命监听器自动开始监听；
+  若 `listeners` 为空，还需要在目标会话里布防）。
 - **监听器自己退出（listener-error）**：job 结束会唤醒 agent（自愈入口）。常见原因：USB 断/手机重启/
   adb 掉线/安全锁屏。先 `python phone\adb.py devices` 确认，恢复后重新布防。
 - **收不到事件的三类原因**（按概率）：

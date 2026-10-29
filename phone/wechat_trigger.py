@@ -40,6 +40,7 @@ EV_DIR.mkdir(parents=True, exist_ok=True)
 EV_LOG = EV_DIR / "listen.log"
 EV_JSONL = EV_DIR / "events.jsonl"
 STATE = ROOT / "runs" / "_wechat" / "trigger_state.json"
+DISARM_FLAG = ROOT / "runs" / "_wechat" / "DISARMED"
 WECHAT_PKG = "com.tencent.mm"
 SHELL_PKG = "com.android.shell"
 
@@ -120,8 +121,35 @@ def _real_adb_serial():
         return None
 
 
+def _ps_listener_pids():
+    """列出所有 wechat_trigger.py listen 进程（跨会话）。"""
+    ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and "
+          "$_.CommandLine -like '*wechat_trigger.py listen*' } | ForEach-Object { $_.ProcessId }")
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                             capture_output=True, text=True, timeout=90)
+        return [line.strip() for line in out.stdout.splitlines() if line.strip().isdigit()]
+    except Exception:
+        return []
+
+
 def cmd_listen(args):
     pkgs = {WECHAT_PKG} | ({SHELL_PKG} if args.include_shell else set())
+    # 全局撤防标记：存在时进入「待命」——不监听、不产生事件、也不结束（避免反复唤醒 agent 重布防）
+    if DISARM_FLAG.exists():
+        _log("listen: 全局撤防中（DISARMED 标记存在），进入待命，不监听")
+        print(json.dumps({"event": "listener-disarmed",
+                          "hint": "全局撤防：运行 python phone\\wechat_trigger.py arm 后，本待命进程会自动开始监听"},
+                         ensure_ascii=False))
+        waited = 0.0
+        while DISARM_FLAG.exists():
+            time.sleep(3)
+            waited += 3
+            if args.max_hours and waited > args.max_hours * 3600:
+                print(json.dumps({"event": "listener-timeout", "state": "disarmed"},
+                                 ensure_ascii=False))
+                return 0
+        _log("listen: DISARMED 标记已移除，开始监听")
     serial = _real_adb_serial()
     if not serial:
         print(json.dumps({"event": "listener-error", "error": "no-android-device",
@@ -297,6 +325,8 @@ def cmd_status(args):
     evs = sorted(EV_DIR.glob("evt-*.json"))[-5:]
     out = {
         "adb": _real_adb_serial(),
+        "disarmed": DISARM_FLAG.exists(),
+        "listeners": _ps_listener_pids(),
         "state": str(STATE),
         "state_exists": STATE.exists(),
         "events_total": len(list(EV_DIR.glob("evt-*.json"))),
@@ -330,11 +360,13 @@ def cmd_finish(args):
 
 
 def cmd_disarm(args):
-    """从任意会话撤防：杀掉所有 wechat_trigger.py listen 进程及其 adb logcat 子进程。
-
-    注意：被杀会话的 DSH 后台任务会结算并可能唤醒那边的 agent（按 skill 它会想重布防）。
-    撤防后如需彻底停用，建议关掉那个会话，或在那个会话里也说一句「撤防」。
-    """
+    """全局撤防：先写 DISARMED 标记（让任何会话的重布防都只进入待命），再杀掉所有监听进程。"""
+    try:
+        DISARM_FLAG.parent.mkdir(parents=True, exist_ok=True)
+        DISARM_FLAG.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": "写撤防标记失败: " + repr(e)}, ensure_ascii=False))
+        return 1
     ps = (
         "Get-CimInstance Win32_Process | Where-Object { "
         "($_.Name -eq 'python.exe' -and $_.CommandLine -like '*wechat_trigger.py listen*') -or "
@@ -350,20 +382,27 @@ def cmd_disarm(args):
         print(json.dumps({"ok": False, "error": repr(e)}, ensure_ascii=False))
         return 1
     time.sleep(1.5)
-    left = "?"
-    try:
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
-             "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and "
-             "$_.CommandLine -like '*wechat_trigger.py listen*' } | Measure-Object | "
-             "Select-Object -ExpandProperty Count"],
-            capture_output=True, text=True, timeout=90)
-        left = out.stdout.strip()
-    except Exception:
-        pass
-    print(json.dumps({"ok": left == "0", "killed_pids": killed, "remaining_listeners": left},
+    left = _ps_listener_pids()
+    print(json.dumps({"ok": not left, "disarmed_flag": str(DISARM_FLAG),
+                      "killed_pids": killed, "remaining_listeners": left},
                      ensure_ascii=False, indent=1))
-    return 0 if left == "0" else 1
+    return 0 if not left else 1
+
+
+def cmd_arm(args):
+    """解除全局撤防（删除 DISARMED 标记）。待命中的监听器会自动开始监听。"""
+    try:
+        if DISARM_FLAG.exists():
+            DISARM_FLAG.unlink()
+    except Exception as e:
+        print(json.dumps({"ok": False, "error": repr(e)}, ensure_ascii=False))
+        return 1
+    listeners = _ps_listener_pids()
+    print(json.dumps({"ok": True, "disarmed_flag": DISARM_FLAG.exists(),
+                      "listeners": listeners,
+                      "hint": "标记已清除；若 listeners 为空，需要在会话里重新布防（后台任务）"},
+                     ensure_ascii=False, indent=1))
+    return 0
 
 
 def cmd_test_notif(args):
@@ -393,7 +432,8 @@ def main(argv):
 
     sub.add_parser("status", help="查看触发器状态")
 
-    sub.add_parser("disarm", help="撤防：杀掉所有 wechat_trigger.py listen 监听进程（可从任意会话执行）")
+    sub.add_parser("disarm", help="全局撤防：写 DISARMED 标记 + 杀掉所有监听进程（可从任意会话执行）")
+    sub.add_parser("arm", help="解除全局撤防（删除 DISARMED 标记；待命中的监听器会自动开始监听）")
 
     p = sub.add_parser("reply", help="微信回结果")
     p.add_argument("--text", nargs="+", default=[])
@@ -410,6 +450,7 @@ def main(argv):
         "inbox": cmd_inbox,
         "status": cmd_status,
         "disarm": cmd_disarm,
+        "arm": cmd_arm,
         "reply": cmd_reply,
         "finish": cmd_finish,
         "test-notif": cmd_test_notif,
