@@ -6,6 +6,8 @@
 
 > 目前已在一台备用 Redmi K60 Pro（Android 13 / MIUI）上真机跑通：
 > 微信消息 → 事件捕获 → agent 唤醒 → 执行 → 微信回结果，端到端 ≈ **33 秒**，监听器全程 0 token。
+>
+> **使用手册（布防 / 换新会话 / 成本 / 后台进程 / 排障）见 [docs/USAGE.md](docs/USAGE.md)。**
 
 ---
 
@@ -116,6 +118,8 @@ runs/wechat_tasks/tasks.json    任务队列
 3. 监听器退出时，DSH 注入 `background job ... finished`，**空闲 agent 会被 follow-up 轮次唤醒**。
 4. 醒来的 agent 按 SKILL.md 的固定流程走：**先重新布防 → 读事件 → 读新增消息 → 执行 → 微信回结果**。
 5. DSH 重启 / 切会话后后台任务会消失，重新说一声「布防」即可。
+6. **换会话 / DSH 重启后的完整步骤**（先撤防旧的、再在新会话布防；任何时候只保留一个监听器）
+   见 [docs/USAGE.md 第 3 节](docs/USAGE.md)。
 
 ## 实测记录（2026-10-29）
 
@@ -158,6 +162,7 @@ tools/
   ocr.ps1             Windows.Media.Ocr 调用脚本
   install-adb.ps1     下载 platform-tools
   fetch-adbkeyboard.ps1 下载 ADBKeyboard.apk
+docs/USAGE.md         使用说明：布防、换新会话、成本、后台进程、排障
 docs/DESIGN.md        设计细节、事件格式、失败模式
 SKILL.md              DSH skill（布防/唤醒后流程/排障）
 ```

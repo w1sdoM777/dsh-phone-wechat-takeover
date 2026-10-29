@@ -118,9 +118,30 @@ python phone\wechat_trigger.py test-notif      # 系统测试通知（配合 lis
 - 全链路：消息 18:28:23 → 监听器 18:28:30 落盘退出 → agent 立即被唤醒 → 18:28:56 微信收到结果（≈33 秒）。
 - 旧的 60 秒轮询 watcher + 每 30 分钟定时任务方案已废弃：**不要恢复定时扫描**。
 
-## 六、相关文档
+## 六、换新会话 / DSH 重启后
+
+后台任务不能跨会话继承，**新会话必须重新布防**。推荐顺序：
+
+1. 旧会话先撤防（说「撤防」→ `job_kill` 监听任务），避免两个监听器同时跑导致重复触发。
+2. 新会话说一句「布防微信接管」，或把下面这段直接发过去：
+
+   ```text
+   按 wechat-takeover skill 布防微信接管。
+   workspace = <仓库绝对路径>（不是的话先 cd）
+   步骤：1) python phone\wechat_trigger.py status 自检
+        2) 微信在前台就先按 Home 切后台
+        3) pwsh 后台任务启动：python phone\wechat_trigger.py listen --max-hours 0
+        4) job_list 确认 running 后告诉我 job id 和「已布防」
+   ```
+
+3. 验证：目标联系人发一条测试微信 → 应在十几秒内收到微信回复。
+
+注意：新会话要开**完全权限**；任何时候只保留**一个**监听器；新会话上下文小，单次唤醒更便宜。
+
+## 七、相关文档
 
 - `README.md`（环境、命令、与现有方案对比、已知限制）
+- `docs/USAGE.md`（使用手册：布防、换新会话、成本、后台进程、排障清单）
 - `docs/DESIGN.md`（事件格式、气泡识别、去重、失败模式、验证方法）
 - `phone/wechat.py`（发消息底座：截屏 + Windows OCR + ADBKeyboard）
 - `phone/awake.py`（熄屏自动点亮 + 上滑解锁）
