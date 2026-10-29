@@ -222,6 +222,13 @@ def _park(reason, session, args):
 def cmd_listen(args):
     pkgs = {WECHAT_PKG} | ({SHELL_PKG} if args.include_shell else set())
     session = _my_session()
+    # 用户口头「布防」（--claim）优先于之前的全局撤防：自动解除撤防标记
+    if args.claim and DISARM_FLAG.exists():
+        try:
+            DISARM_FLAG.unlink()
+            _log("listen: claim 布防，自动解除全局撤防标记")
+        except Exception as e:
+            _log("解除撤防标记失败: " + repr(e))
     while True:
         if DISARM_FLAG.exists():
             if not _park("全局撤防中（DISARMED 标记存在）", session, args):

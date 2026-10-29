@@ -56,6 +56,7 @@ cd <REPO>; python phone\wechat_trigger.py status
 
    - `--claim` = **接管所有权**（用户口头说「布防」时才加）：自动停掉其它会话的监听器，
      实现「新会话布防 → 老对话的布防自动撤销」。
+   - 之前做过全局撤防（`runs/_wechat/DISARMED` 存在）时，`--claim` 会**自动解除撤防**，不需要先 `arm`。
    - `--max-hours 0` = 不限时长（推荐）；`--max-hours 12` 可做每日心跳自愈。
    - **不要**加 `--include-shell`（那是自测用，会把系统通知也当事件）。
    - 起完用 `job_list` 确认状态 running，记住 job id。
