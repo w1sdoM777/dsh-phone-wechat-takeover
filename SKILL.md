@@ -240,7 +240,7 @@ python phone\wechat_trigger.py test-notif          # 发系统测试通知（只
 - skill 描述常驻系统提示约 +80 token/次请求，可忽略。
 - 省钱办法：会话越长单次唤醒越贵 → 现在有**自动交接**（第七节）：session_ctx.py --check 到 80% 就
   handoff.py write 写记忆 + 新会话 listen --claim 接管；监听器成本始终为 0。
-  数据源：`%USERPROFILE%\.dsh\.dshw-usage.json` 的 `events`。
+  数据源：`C:\Users\20412\.dsh\.dshw-usage.json` 的 `events`。
 
 ## 六、验证记录
 
@@ -354,6 +354,9 @@ Get-PnpDevice -PresentOnly | Where-Object { $_.InstanceId -like 'USB\VID_2717*' 
 
 - **开源仓库**：<https://github.com/w1sdoM777/dsh-phone-wechat-takeover>（脱敏版：联系人用环境变量
   `WECHAT_CONTACT`，可直接给别人复现；本机 `deliverables/dsh-phone-wechat-takeover/` 是同一份）
+  - **发布到 GitHub**：正常网络 `git push` 即可；本机 `github.com:443` 常被墙，用
+    `python tools\_push_via_api2.py`（走 `api.github.com` + `git credential fill` 里的 token，
+    以远端 head 为父提交重建 tree/commit）——2026-10-31 实测可用。
   - 使用手册在仓库 `docs/USAGE.md`（布防/换会话/成本/后台进程/排障），本机同步方式：改本 skill 或直接看仓库
   - 注意：仓库版目前还是**只有通知链路**的旧代码；前台看板（2026-10-31）只在本机 `D:\手机agent\phone\` 里，
     要发布需要把 `wechat_trigger.py`/`wechat.py`/`wechat_task.py` 的改动脱敏后同步过去。
