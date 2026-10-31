@@ -7,7 +7,7 @@ r"""Windows 自带 OCR（免费的本地中文识别），把手机截图变成�
 代码里：
 
   from ocr import ocr_image
-  lines = ocr_image(r"runs/xxx.png")   # [{text,x,y,w,h}] 已按阅读顺序排序
+  lines = ocr_image(r"D:\手机agent\runs\xxx.png")   # [{text,x,y,w,h}] 已按阅读顺序排序
 
 原理：调 Windows PowerShell 5.1 的 Windows.Media.Ocr（系统已带 zh-Hans 识别引擎），
 用 OcrLine 的文字 + BoundingRect 还原行位置。零 token 成本。

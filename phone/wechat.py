@@ -2,20 +2,19 @@
 r"""微信汇报：给指定联系人发消息（OCR 驱动，因为微信不暴露 uiautomator 树）。
 
   python phone/wechat.py send "汇报文本"
-  python phone/wechat.py send --to "<联系人备注>" "汇报文本"
+  python phone/wechat.py send --to 目标联系人 "汇报文本"
   python phone/wechat.py open
   python phone/wechat.py status
 
 说明：
 - 微信主界面/聊天页的 uiautomator dump 只有空节点（App 屏蔽了无障碍树），
   所以全部用 截屏 + Windows OCR（本地免费）定位控件。
-- 认人规则：主页最近会话/搜索结果里名字模糊匹配环境变量 WECHAT_CONTACT（OCR 常把 1 读成 l）。
+- 认人规则：主页最近会话/搜索结果里名字模糊匹配 目标联系人（OCR 常把 1 读成 l）。
 - 发送：点输入框 → ADBKeyboard 广播中文 → OCR 找「发送」→ 点 → OCR 验证气泡。
 """
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 import time
@@ -31,6 +30,9 @@ ROOT = Path(__file__).resolve().parent.parent
 TMP = ROOT / "runs" / "_wechat"
 TMP.mkdir(parents=True, exist_ok=True)
 RESULT = TMP / "last.json"
+# 发送期间给「前台看板」用的互斥标记：识别器看到它就暂停截图，避免把 agent 自己
+# 打字/发送的过程当成新消息（wechat_trigger.py 里同名路径）。
+SEND_LOCK = TMP / "sending.lock"
 DEFAULT_TO = os.environ.get("WECHAT_CONTACT", "").strip()
 
 
@@ -110,8 +112,6 @@ def _in_chat(rows, keyword=DEFAULT_TO):
 
 
 def open_chat(keyword=DEFAULT_TO):
-    if not keyword:
-        raise adb.AdbError("请先设置环境变量 WECHAT_CONTACT=微信里对方的备注名")
     open_app()
     rows = _ocr()
     if _in_chat(rows, keyword):
@@ -190,6 +190,22 @@ def _find_send(rows):
 
 
 def send(text, to=DEFAULT_TO):
+    """对外入口：发送期间打上 sending.lock，供前台看板暂停识别（避免自触发）。"""
+    try:
+        SEND_LOCK.parent.mkdir(parents=True, exist_ok=True)
+        SEND_LOCK.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+    except Exception:
+        pass
+    try:
+        return _send(text, to=to)
+    finally:
+        try:
+            SEND_LOCK.unlink()
+        except Exception:
+            pass
+
+
+def _send(text, to=DEFAULT_TO):
     if not open_chat(to):
         return _save({"ok": False, "stage": "open_chat", "error": "没找到联系人/没进聊天页"})
     if not _tap_input():
@@ -230,6 +246,9 @@ def send(text, to=DEFAULT_TO):
 
     target = _core(text)[:12]
     t_cjk = _cjk(target)
+    mcjk = _cjk(text)
+    # 长文本/OCR 噪声兜底用：正文的全部 6 字片段（行匹配只要有任意片段命中即可）
+    cjk6 = {mcjk[i:i + 6] for i in range(max(0, len(mcjk) - 5))}
     ok = False
     px = None
     try:
@@ -243,6 +262,12 @@ def send(text, to=DEFAULT_TO):
             continue
         # #3 在 OCR 里可能读成 #5，所以优先用中文主干匹配，数字不参与
         hit = (len(t_cjk) >= 6 and t_cjk[:8] in _cjk(body)) or (len(target) >= 6 and target[:8] in body)
+        if not hit and cjk6:
+            # 长汇报常见：开头【任务完成·#N】等装饰符被 OCR 读成怪字，逐行「开头匹配」会漏；
+            # 改为「该行任意 6 字片段在正文里出现过」就算命中，再用气泡颜色确认是自己发的。
+            bcjk = _cjk(body)
+            win = range(max(0, len(bcjk) - 5))
+            hit = any(bcjk[i:i + 6] in mcjk for i in win)
         if not hit:
             continue
         if px is None:
@@ -261,6 +286,12 @@ def send(text, to=DEFAULT_TO):
         if col == "green":
             ok = True
             break
+    if not ok and px is None:
+        # 取不到像素时的最后兜底：正文尾部 8 个汉字出现在消息区即认为已发
+        body_all = _cjk("".join(r["text"] for r in rows2 if 300 < r["y"] < 2200))
+        tail = mcjk[-8:]
+        if len(tail) >= 6 and tail in body_all:
+            ok = True
     return _save({
         "ok": bool(ok),
         "stage": "done" if ok else "verify",

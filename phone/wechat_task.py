@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-r"""微信任务通道：把目标联系人发来的微信消息当成任务，排队交给 agent 执行。
+r"""微信任务通道：把 目标联系人💠M 发来的微信消息当成任务，排队交给 agent 执行。
 
   python phone/wechat_task.py status                 # 看状态
   python phone/wechat_task.py poll                   # 轮询一次（新消息 -> 任务队列 + 微信回执）
@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
-import os
 import re
 import sys
 import time
@@ -102,11 +101,12 @@ def _components(mask, mw, mh, min_area):
     return out
 
 
-def extract_messages(shot_path, y_bottom=2060):
+def extract_messages(shot_path, y_bottom=2060, rows=None):
     """从聊天页截图提取消息：[{side:'in'|'out', y, x1,y1,x2,y2, text}]
 
     y_bottom：气泡底部扫描边界。最新一条消息常贴在输入框上方（y≈2050-2160），
     需要更靠下才能截到，调用方可传 2185；默认 2060 保持旧行为。
+    rows：可传入已经跑过的 OCR 结果（[{text,x,y,w,h}]），避免重复 OCR（前台看板每轮只 OCR 一次）。
     """
     from PIL import Image
     im = Image.open(shot_path).convert("RGB")
@@ -127,7 +127,7 @@ def extract_messages(shot_path, y_bottom=2060):
     # 白气泡（对方）：min_area 换算到 downscale 后 ~ 600 px
     bubbles = [{"side": "in", "box": b} for b in _components(white, mw, mh, 350)]
     bubbles += [{"side": "out", "box": b} for b in _components(green, mw, mh, 350)]
-    rows = ocr_image(str(shot_path))
+    rows = ocr_image(str(shot_path)) if rows is None else rows
     msgs = []
     for bb in bubbles:
         x1, y1, x2, y2, _ = bb["box"]
@@ -177,10 +177,7 @@ def _focus_ok():
 
 
 def ensure_chat():
-    """确保微信在前台、且停在目标联系人的聊天页；返回是否成功。"""
-    if not CONTACT:
-        _log("ensure_chat: 未设置 WECHAT_CONTACT")
-        return False
+    """确保微信在前台、且停在 目标联系人 的聊天页；返回是否成功。"""
     awake.ensure_awake()
     if _focus_ok() and wechat._in_chat(wechat._ocr(), CONTACT):
         return True
@@ -336,7 +333,7 @@ def poll(ack=False, quiet=False):
         candidates = [msgs[i] for i in range(overlap, len(msgs))] if overlap else msgs
         PAGE_MARKERS = ("再发一件", "多搞副业", "曝光越多", "副业越多")
         raw_new = [m for m in candidates if m["side"] == "in" and _norm(m["text"]) and not _is_processed(m["text"], processed)]
-        # 页面文案误识别（某些 App 的发布/成功页文字）不是用户消息
+        # 页面文案误识别（闲鱼发布成功页等）不是用户消息
         page_like = [m for m in raw_new if sum(1 for x in PAGE_MARKERS if x in m["text"]) >= 2]
         if page_like:
             _log("poll: 跳过疑似页面文案 " + repr(page_like[0]["text"][:40]))

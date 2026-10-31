@@ -43,6 +43,19 @@
   所以「常驻监听器 = 后台任务」本身就是唤醒开关，不需要写插件、不需要定时任务。
 - **事件里就有发送人和正文**（来自系统通知），通常不用先开手机屏幕；正文被微信设置脱敏时再走 OCR 兜底。
 
+## 上下文 80% 自动交接（2026-10-31 加）
+
+会话变长后，每次唤醒重跑上下文的成本会上升，DSH 也会在上下文到 ~53.3 万 token 时自动压缩、
+丢掉细节。本仓库现在自带一套「记忆交接」：
+
+```powershell
+python phone\session_ctx.py --check     # 0=继续 / 10=到 80% 该交接 / 20=已被压缩
+python phone\handoff.py write --note "在做什么"   # 写 runs/memory/MEMORY.md
+python phone\handoff.py seed            # 给新会话的启动消息（读记忆 → listen --claim）
+```
+
+新会话 `listen --claim` 会自动接管布防，旧会话自动退场；记忆全部落在 `runs/memory/`，不靠模型上下文硬记。
+
 ## 与现有方案对比
 
 | 方案 | 消息来源 | 需要什么 | 代价 / 缺点 |

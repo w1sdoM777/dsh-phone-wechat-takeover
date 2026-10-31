@@ -181,3 +181,34 @@ python phone\wechat_trigger.py arm
 3. 布防 → `job_list` 有 running 的 listener
 4. 目标联系人发一条测试微信 → 十几秒内收到微信回复
 5. 再发第二条 → 确认第一条处理完后监听器已重新布防（没死）
+
+## 10. 上下文 80% 自动交接（2026-10-31 加）
+
+会话越长，每次被微信唤醒重跑上下文的成本越高；DSH 在上下文到 ~53.3 万 token 时会自动压缩，
+细节会被摘要替换。本 skill 因此加了「到 80% 压缩预算就换新会话、但记忆不丢」的机制。
+
+### 命令
+
+```powershell
+cd D:\手机agent
+python phone\session_ctx.py            # 看当前会话上下文用量（估算）
+python phone\session_ctx.py --check    # 策略检查：0=OK / 10=该交接 / 20=已压缩
+python phone\handoff.py write --note "一句话说明现在在做什么"   # 写交接记忆
+python phone\handoff.py seed           # 打印新会话启动消息
+```
+
+### 原理
+
+- 会话日志：`%DSH_HOME%\sessions\<转义cwd>\<session-id>\session.v4.jsonl.zstd`
+  （Python 3.14+ 用标准库 `compression.zstd` 直接解，无需装包；会话 id 在 `$env:DSH_SESSION_ID`）；
+- `request/context` 里的 `contextWindow`：本机 deepseek-flash = 1,048,576 tokens；
+- 压缩触发点取最近一次 `compaction/summary.data.usage.inputTokens`（实测 533,042）= 压缩预算；
+- 用量% = 估算 token ÷ 压缩预算；字符→token 系数 2.9 用压缩前真实 usage 反标定（误差 ≈0.1%）。
+
+### 交接流程
+
+1. `python phone\handoff.py write --note "..."` → 生成 `runs/memory/MEMORY.md`（待办、最近完成、
+   布防状态、关键路径、用户习惯）和 `runs/memory/SEED.md`（新会话启动消息）；
+2. 把 `handoff.py seed` 的内容发到新会话（DSH 会话由 GUI 创建；本机 HTTP API 需鉴权，脚本不代开）；
+3. 新会话照 SEED 里的步骤 `listen --claim`，自动停掉旧监听器，不会双监听；
+4. 用户无感，唤醒成本回落到最低。

@@ -101,13 +101,17 @@ def open_app(pkg):
     shell(f"monkey -p {pkg} -c android.intent.category.LAUNCHER 1")
 
 
-# 常用 App 包名（按需增删；也可直接传包名给 open_app）
+# 常用 App 包名（明天直接用名字打开，不用猜）
 APPS = {
+    "闲鱼": "com.taobao.idlefish",
+    "小红书": "com.xingin.xhs",
+    "抖音": "com.ss.android.ugc.aweme",
     "微信": "com.tencent.mm",
     "支付宝": "com.eg.android.AlipayGphone",
-    "Chrome": "com.android.chrome",
-    "设置": "com.android.settings",
-    "抖音": "com.ss.android.ugc.aweme",
+    "剪映": "com.lemon.lv",
+    "WPS": "cn.wps.moffice_eng",
+    "点评": "com.dianping.v1",
+    "美团": "com.sankuai.meituan",
 }
 
 
